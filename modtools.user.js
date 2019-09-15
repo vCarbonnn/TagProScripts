@@ -3,12 +3,13 @@
 // @namespace    http://www.reddit.com/u/bizkut
 // @updateURL    https://github.com/mcgrogan91/TagProScripts/raw/master/modtools.user.js
 
-// @version      1.6.0
+// @version      1.7.0
 // @description  It does a lot.  And then some.  I'm not even joking.  It does too much.
 // @author       Bizkut
 // @contributor  OmicroN
 // @contributor  Carbon
 // @include      http://tagpro-*.koalabeast.com/moderate/*
+// @include      https://tagpro.koalabeast.com/moderate/*
 // @include      http://tangent.jukejuice.com/moderate/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/crosstab/0.2.12/crosstab.min.js
 // @grant        GM_getValue
@@ -17,7 +18,7 @@
 // @grant        GM_addValueChangeListener
 // ==/UserScript==
 
-var bizAPI = "http://104.236.225.6/api/";
+var bizAPI = "https://kylemcgrogan.com/api/";
 var commentAPI = bizAPI + "comments/";
 var evasionAPI = bizAPI + "evasion/";
 
@@ -671,7 +672,7 @@ function colorAccountInfo(accountLink, extraInfo = true) {
         if (extraInfo) {
             accountLink.append(" - Last Played: " + hoursAgo + " | IP: " + lastIp + " | Age: " + accountAge);
         }
-	   
+
         accountLink.append(" | Bans: " + banCount + " | Mutes: " + muteCount);
         if (muteCount.length) {
             muteCount = muteCount.match(/\(([^)]+)\)/)[1]; // Pull that number out
@@ -908,6 +909,7 @@ if(window.location.pathname.indexOf('chat') > -1) {
 }
 
 if(window.location.pathname.indexOf('users') > -1 || window.location.pathname.indexOf('ips') > -1) {
+    $("#shadowmuteButton").hide();
     setActiveCountOnRecentReports(!GM_getValue('report_counter')); //note the !, enabling the checkbox disables functionality
     evasionSection();
     var profId = window.location.pathname.substr(window.location.pathname.lastIndexOf('/') + 1);
@@ -1116,6 +1118,46 @@ if(window.location.pathname.indexOf('users') > -1 || window.location.pathname.in
     });
     prevChild.parent().append(submitBan);
 
+    function getIPInfo(ip) {
+        GM_xmlhttpRequest({
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "X-key": "NTQ2ODo1cFZHbXNwRlg2b3dseXFxVnBmbWhsSTgzZGZrUUxvYQ=="
+            },
+            url: "http://v2.api.iphub.info/ip/"+ip,
+            onload: function(response) {
+                var json = JSON.parse(response.responseText),
+                    type, color;
+                if (json.block == 0) {
+                    type = 'Residential or business';
+                    color = '#04bd04'; // green
+                } else if (json.block == 1) {
+                    type = 'Non-residential IP';
+                    color = '#e74c3c'; // red
+                } else if (json.block == 2) {
+                    type = 'Non-residential & residential IP';
+                    color = '#f39c12'; // orange
+                }
+
+                var ipInfo = $("<div style='padding-left:20px'></div>");
+                ipInfo.append("<div style='max-width:300px'><span>Country</span><span style='float:right'>"+json.countryName+"</span></div>");
+                ipInfo.append("<div style='max-width:300px'><span>ISP</span><span style='float:right'>"+json.isp+"</span></div>");
+                ipInfo.append("<div style='max-width:300px'><span>Type</span><span style='float:right; color:"+color+"'>"+type+"</span></div>");
+                $('#ipCheck').parent().append(ipInfo);
+            }
+        });
+    }
+
+    var ipCheck = $("<button id='ipCheck' class='tiny'>VPN Check</button>");
+    ipCheck.on('click', function(e) {
+        e.preventDefault();
+        var el = $(this);
+        el.hide();
+        getIPInfo(el.prev().text());
+    });
+    $('label:contains("'+ (section == 'users' ? 'Last IP' : 'IP Address') +'")').parent().append(ipCheck);
+
     if(profId !== 'users') {
         $("<h2 id='comment_title'>Comments</h2>").appendTo("#content");
 
@@ -1162,7 +1204,7 @@ function setActiveCountOnRecentReports(optionEnabled) {
     reportCount = reports.length;
     if(optionEnabled && reportCount>0) {
         getReportReasons(loopThroughReports);
-    } 
+    }
 }
 
 function getReportReasons(callback) {
@@ -1271,3 +1313,77 @@ $.get(evasionAPI + 'evaders', function(response) {
         });
     }, 1000);
 });
+
+var sortUserLastGame = function(ascOrDesc) {
+    var userRows = $('tr');
+    dashUsers = [];
+
+    $('#reportRows').html('');
+    recursiveLastPlayedSort(userRows, ascOrDesc);
+
+    if (ascOrDesc === 'desc') {
+        return 'asc';
+    } else {
+        return 'desc';
+    }
+}
+
+var recursiveLastPlayedSort = function(userRows, ascOrDesc) {
+    var currentLow = null;
+    var currentLowHoursPlayed = null;
+    var currentLowIndex = null;
+
+    //  Only run it if we have rows to look at
+    if (userRows.length > 0) {
+        //  Find the current lowest number of hours played
+        for (var i = 0; i < userRows.length; i++) {
+            //  If it's a dash user we'll put them at the end
+            if (userRows.eq(i).find('th:nth-child(4)').text() !== '-') {
+                var hoursPlayed = userRows.eq(i).find('th:nth-child(4)').text().match(/\d+/g);
+
+                if (hoursPlayed !== null && (parseInt(hoursPlayed, 10) < currentLowHoursPlayed || currentLow === null)) {
+                    currentLowHoursPlayed = parseInt(hoursPlayed, 10);
+                    currentLow = userRows.eq(i);
+                    currentLowIndex = i;
+                }
+            } else {
+                dashUsers.push(userRows.eq(i));
+            }
+        }
+
+        //  Append the lowest row and splice the element out of the array
+        if (currentLow !== undefined) {
+            if (ascOrDesc === 'desc') {
+                $('#reportRows').append(currentLow);
+            } else {
+                $('#reportRows').prepend(currentLow);
+            }
+            
+            userRows.splice(currentLowIndex, 1);
+        }
+
+        recursiveLastPlayedSort(userRows, ascOrDesc);
+    } else {
+        //  Put the dash users we found at the end
+        dashUsers.forEach(function(row) {
+            if (ascOrDesc === 'desc') {
+                $('#reportRows').append(row);
+            } else {
+                $('#reportRows').prepend(row);
+            }
+        });
+
+        return;
+    }
+}
+
+if (window.location.pathname.indexOf("users") > -1) {
+    var ascOrDesc = 'desc';
+    var dashUsers = [];
+
+    $('th').click(function(e) {
+        if ($(this).text() === 'Last Game') {
+            ascOrDesc = sortUserLastGame(ascOrDesc);
+        }
+    });
+}
